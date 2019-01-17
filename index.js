@@ -1,34 +1,19 @@
 const axios = require('axios');
-const {parseString} = require('xml2js');
 
-const _endpoints = Object.freeze({
-  auth: '/roap/api/auth',
-  command: '/roap/api/command',
-  data: '/roap/api/data',
-  event: '/roap/api/event',
-  navigation: '/navigation',
-});
-
+const _endpoints = require('./endpoints');
 const _encode = require('./encode');
+const _decode = require('./decode');
 
-const _decode = (data) => new Promise((resolve, reject) => {
-  parseString(data, {
-    explicitRoot: false,
-    explicitArray: false,
-  }, (err, result) => {
-    if (err) reject(err);
-    else resolve(result);
-  })
-})
-
-/**
+/** 
  * @typedef LGTVSettings
  * @property {string} host ip address or hostname of TV
  * @property {integer} [port] port (default is 8080)
  * @property {function} [encode]
  * @property {endpoints} [encode]
  * @property {string} [pairingKey]
- * 
+ */
+ 
+ /**
  * @param {LGTVSettings} settings 
  */
 function LGTV(settings = {}) {
@@ -51,68 +36,111 @@ function LGTV(settings = {}) {
     .then((request) => _decode(request.data))
   }
 
-  function get(path = "/") {
+  function get(path = "/", data = {}) {
+    const parameters = Object.keys(data)
+      .map(key => encodeURIComponent(key) + "=" + encodeURIComponent(data[key]))
+      .join('&');
+    
     return axios({
       method: 'get',
-      url: `http://${host}:${port}${path}`,
+      url: `http://${host}:${port}${path}?${parameters}`,
       response: 'string',
       headers: {
         'Connection': "Close"
       }
     })
+    .then((request) => _decode(request.data))
   }
 
-  return {
-    get,
-    post,
+  const auth = {
+    AuthKeyReq: () => post(endpoints.auth, encode('auth', {
+      type: 'AuthKeyReq',
+    })),
 
-    auth: {
+    CancelAuthKeyReq: () => post(endpoints.auth, encode('auth', {
+      type: 'CancelAuthKeyReq'
+    })),
 
-      AuthKeyReq: () => post(endpoints.auth, encode('auth', {
-        type: 'AuthKeyReq',
-      })),
+    AuthReq: (pairingKey) => post(endpoints.auth, encode('auth', {
+      type: 'AuthReq',
+      value: pairingKey || settings.pairingKey
+    })),
+  };
 
-      CancelAuthKeyReq: () => post(endpoints.auth, encode('auth', {
-        type: 'CancelAuthKeyReq'
-      })),
+  const command = {
 
-      AuthReq: (pairingKey) => post(endpoints.auth, encode('auth', {
-        type: 'AuthReq',
-        value: pairingKey || settings.pairingKey
-      })),
-    },
-
-    command: {
-      
-      /**
-       * Not working
-       */
-      ChangeInputSource: (source) => 
-        typeof source == "string" ?
-          post(endpoints.command, encode('command', {
-            name: 'ChangeInputSource',
-            inputSource: source,
-          })) :
-          post(endpoints.command, encode('command', {
-            name: 'ChangeInputSource',
-            inputSourceType: source.type,
-            inputSourceIdx: source.index
-          })),
-
-      HandleKeyInput: (key) =>
+    ChangeInputSource: (source) => 
+      typeof source == "string" ?
         post(endpoints.command, encode('command', {
-          name: 'HandleKeyInput',
-          value: key
+          name: 'ChangeInputSource',
+          inputSource: source,
+        })) :
+        post(endpoints.command, encode('command', {
+          name: 'ChangeInputSource',
+          inputSourceType: source.type,
+          inputSourceIdx: source.index
         })),
 
-    },
+    HandleKeyInput: (value) =>
+      post(endpoints.command, encode('command', {
+        name: 'HandleKeyInput',
+        value
+      })),
 
-    data: {
+    AVMode: (source, onOrOff) =>
+      post(endpoints.command, encode('command', {
+        name: 'AVMode',
+        source,
+        value: typeof onOrOff === "string" ? onOrOff : (onOrOff ? "on" : "off")
+      })),
 
-      inputsrc_list: () => get(`${endpoints.data}?target=inputsrc_list`)
+    HandleChannelChange: ({ major, minor, sourceIndex, physicalNum }) =>
+      post(endpoints.command, encode('command', {
+        name: 'HandleChannelChange',
+        major, minor, sourceIndex, physicalNum
+      })),
 
-    }
-  }
+    AppExecute: ({ auid, appname, contentid, contentAge }) =>
+      post(endpoints.command, encode('command', {
+        name: 'AppExecute',
+        auid, appname, contentid, contentAge
+      })),
+
+  };
+
+  const data = {
+
+    inputsrc_list: () => get(endpoints.data, { target: "inputsrc_list" }),
+    channel_list: () => get(endpoints.data, { target: "channel_list" }),
+    cur_inputsrc: () => get(endpoints.data, { target: "cur_inputsrc" }),
+    caps: () => get(endpoints.data, { target: "caps" }),
+    
+    /**
+     * @param {2|3} type
+     * @param 
+     */
+    applist_get: (type, index = 0, number = 100) => 
+      get(endpoints.data, {
+        target: 'applist_get',
+        type, index, number 
+      }),
+
+    /**
+     * @param {2|3} type
+     */
+    appnum_get: (type) =>
+      get(endpoints.data, { 
+        target: 'appnum_get',
+        type
+      }),
+
+  };
+
+  return {
+    get, post,
+    auth, command, data
+  };
+
 };
 
 LGTV.endpoints = _endpoints;

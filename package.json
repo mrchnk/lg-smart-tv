@@ -1,5 +1,6 @@
 {
   "name": "lg-smart-tv",
+  "description": "Client for LG Smart TV 2012",
   "version": "1.0.0",
   "main": "index.js",
   "license": "MIT",
